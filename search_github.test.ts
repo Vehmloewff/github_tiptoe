@@ -19,3 +19,20 @@ Deno.test('searchGithub searches github to a limit', async () => {
 
 	asserts.assertEquals(repos.length, 100)
 })
+
+Deno.test('We always tick to `limit`, regardless of how many results there are', async () => {
+	let tickCalledCount = 0
+
+	await searchGithub('some impossible query', {
+		limit: 100,
+		handleResult() {
+			return true
+		},
+		onTick() {
+			tickCalledCount++
+		},
+		onStatusChange: console.log,
+	})
+
+	asserts.assertEquals(tickCalledCount, 100)
+})

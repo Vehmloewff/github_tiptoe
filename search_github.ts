@@ -159,7 +159,7 @@ export interface SearchGithubParams {
 	onTick?(): void
 
 	/** Called directly. `limit` is the number of ticks that will occur, even if there aren't that many results */
-	onPlan(limit: number): void
+	onPlan?(limit: number): void
 
 	/** Gives a human-readable of description of the status of the operation */
 	onStatusChange?(status: string): void
@@ -177,7 +177,7 @@ export async function searchGithub(query: string, params: SearchGithubParams): P
 
 	let resultsReceived = 0
 	let currentPage: GithubSearchedRepo[] = []
-	let nextPageLink: string | null = null
+	let nextPageLink: string | null = buildFirstLink()
 
 	while (true) {
 		if (resultsReceived >= limit) break
@@ -192,23 +192,30 @@ export async function searchGithub(query: string, params: SearchGithubParams): P
 		if (params.onTick) params.onTick()
 	}
 
-	while (resultsReceived <= limit) {
+	while (resultsReceived < limit) {
 		resultsReceived++
 		if (params.onTick) params.onTick()
 	}
 
 	async function getNextRepo(): Promise<GithubSearchedRepo | null> {
+		// If we have a current page already, just get the next repo from it
 		if (currentPage.length) return currentPage.shift()!
 
+		// So we must not have a current page. Additionally, there isn't a next page. We have reached the end of our results.
+		if (!nextPageLink) return null
+
+		// Fetch another page. This function sets `currentPage` and `nextPageLink`
 		await fetchPage()
+
+		// If there are no results in the just fetch page, we are at the end. This should really never happen, but it will
+		// cause an infinite loop if it does happen, this check is in here for good measure
 		if (!currentPage.length) return null
 
-		return await getNextRepo()
+		// Then, because know we have results now, get the first repo in those results
+		return currentPage.shift()!
 	}
 
-	function buildLink() {
-		if (nextPageLink) return nextPageLink
-
+	function buildFirstLink() {
 		const searchParams = new URLSearchParams()
 		searchParams.append('q', query)
 		searchParams.append('order', order)
@@ -219,18 +226,9 @@ export async function searchGithub(query: string, params: SearchGithubParams): P
 		return `https://api.github.com/search/repositories?${searchParams.toString()}`
 	}
 
-	async function fetchPage() {
-		if (params.onStatusChange) params.onStatusChange('Fetching a new page of results from github')
-
-		const response = await dtils.retryFailures(async () => {
-			const response = await searcher.fetch(new Request(buildLink()))
-			if (!response.ok) throw new Error(`Failed to fetch github response page: ${dtils.jsonEncode(await response.json(), '\t')}`)
-
-			return response
-		})
-
-		const link = response.headers.get('link')
-		if (!link) throw new Error('Expected a Link header in response')
+	function extractNextPageLink(headers: Headers) {
+		const link = headers.get('link')
+		if (!link) return null
 
 		const linkItems = link.split(',')
 		const nextLink = linkItems
@@ -245,9 +243,24 @@ export async function searchGithub(query: string, params: SearchGithubParams): P
 			})
 			.find((item) => item.isNext)
 
-		if (!nextLink) return
+		if (!nextLink) return null
 
-		nextPageLink = nextLink.link
+		return nextLink.link
+	}
+
+	async function fetchPage() {
+		if (params.onStatusChange) params.onStatusChange('Fetching a new page of results from github')
+
+		const response = await dtils.retryFailures(async () => {
+			if (!nextPageLink) throw new Error('Cannot fetch next page because there\'s not a nextLink')
+
+			const response = await searcher.fetch(new Request(nextPageLink))
+			if (!response.ok) throw new Error(`Failed to fetch github response page: ${dtils.jsonEncode(await response.json(), '\t')}`)
+
+			return response
+		})
+
+		nextPageLink = extractNextPageLink(response.headers)
 		currentPage = new dtils.SafeUnknown(await response.json()).asObject().get('items').asArray().data as GithubSearchedRepo[]
 	}
 }
