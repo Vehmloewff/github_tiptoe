@@ -1,21 +1,5 @@
-// export interface PhpSource {
-// 	user: string
-// 	name: string
-// 	ref: string
-// }
-
 import { dtils } from './deps.ts'
 import { GithubRequester } from './requester.ts'
-
-// const sources: PhpSource[] = [
-// 	{ user: 'nextcloud', name: 'server', ref: 'master' },
-// 	{ user: 'alextselegidis', name: 'easyappointments', ref: 'master' },
-// 	{ user: 'coollabsio', name: 'coolify', ref: 'main' },
-// 	{ user: 'pulsejet', name: 'memories', ref: 'master' },
-// 	{ user: 'matomo-org', name: 'matomo', ref: '5.x-dev' },
-// ]
-
-// export default sources
 
 export interface GithubSearchedRepo {
 	id: number
@@ -153,16 +137,17 @@ export interface GithubSearchedRepo {
 	web_commit_signoff_required: boolean
 }
 
+export type GithubSearchSort = 'stars' | 'forks' | 'help-wanted-issues' | 'updated' | 'best-match'
+export type GithubSearchOrder = 'asc' | 'desc'
+
 export interface SearchGithubParams {
-	noProgress?: boolean
-	sort?: string
-	order?: string
+	sort?: GithubSearchSort
+	order?: GithubSearchOrder
 	limit?: number
-	concurrency?: number
-	handleResult(repo: GithubSearchedRepo): Promise<boolean>
+	handleResult(repo: GithubSearchedRepo): Promise<boolean> | boolean
 	onPlan?(repoCount: number): void
 	onTick?(): void
-	onStatusChange(status: string): void
+	onStatusChange?(status: string): void
 }
 
 export async function searchGithub(query: string, params: SearchGithubParams): Promise<void> {
@@ -215,7 +200,8 @@ export async function searchGithub(query: string, params: SearchGithubParams): P
 	}
 
 	async function fetchPage() {
-		params.onStatusChange('Fetching a new page of results from github')
+		if (params.onStatusChange) params.onStatusChange('Fetching a new page of results from github')
+
 		const response = await dtils.retryFailures(async () => {
 			const response = await searcher.fetch(new Request(buildLink()))
 			if (!response.ok) throw new Error(`Failed to fetch github response page: ${dtils.jsonEncode(await response.json(), '\t')}`)

@@ -3,7 +3,7 @@ import { asyncUtils } from './deps.ts'
 export type GithubRequestListener = (response: Response) => void
 
 export interface GithubRequesterParams {
-	onStatusChange(status: string): void
+	onStatusChange?(status: string): void
 }
 
 /** Sends github requests while staying within rate limits */
@@ -14,7 +14,7 @@ export class GithubRequester {
 	#rateLimitResetTime: number | null = null
 	#isDriving = false
 
-	constructor(params: GithubRequesterParams) {
+	constructor(params: GithubRequesterParams = {}) {
 		this.#params = params
 	}
 
@@ -38,7 +38,7 @@ export class GithubRequester {
 	}
 
 	#updateStatus(status: string) {
-		this.#params.onStatusChange(status)
+		if (this.#params.onStatusChange) this.#params.onStatusChange(status)
 	}
 
 	async #drive(): Promise<void> {
@@ -61,6 +61,8 @@ export class GithubRequester {
 
 		// If, after all that work, we still got rate limited, just wait till the reset (or 30 seconds) 30 seconds and retry
 		if (response.status === 403) {
+			await response.body?.cancel() // We cancel the request body because it won't be consumed and we don't want to leak resources
+
 			this.#rateLimitResetTime = Date.now() + 30 * 1000
 			this.#searchForRateCeiling(response)
 
@@ -68,6 +70,7 @@ export class GithubRequester {
 			return await this.#drive()
 		}
 
+		this.#searchForRateCeiling(response)
 		this.#notifyOfResponse(request, response)
 
 		this.#queue.shift()
@@ -93,7 +96,7 @@ export class GithubRequester {
 		const resetTime = parseInt(rateLimitResetTime)
 		if (isNaN(resetTime)) throw new Error(`Could not parse reset header: ${rateLimitResetTime}`)
 
-		this.#rateLimitResetTime = resetTime * 1000 + 5000 // Github time is in seconds, but we track milliseconds. Additionally, we want to wait fix seconds longer just to be safe
+		this.#rateLimitResetTime = resetTime * 1000 + 5000 // Github time is in seconds, but we track milliseconds. Additionally, we want to wait five seconds longer just to be safe
 	}
 
 	async #delayUntilReset(): Promise<void> {
