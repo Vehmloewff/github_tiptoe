@@ -141,18 +141,33 @@ export type GithubSearchSort = 'stars' | 'forks' | 'help-wanted-issues' | 'updat
 export type GithubSearchOrder = 'asc' | 'desc'
 
 export interface SearchGithubParams {
+	/** How the search results are to be sorted. Default is `best-match` */
 	sort?: GithubSearchSort
+
+	/** How the search results are to be ordered. Default is `desc` */
 	order?: GithubSearchOrder
+
+	/** The number of repos to search for. This number is only contributed to when `handleResult` returns true, not when it returns `false` */
 	limit?: number
+
+	/** Called anytime that a repo is discovered. Return `true` if the call should count towards our limit */
 	handleResult(repo: GithubSearchedRepo): Promise<boolean> | boolean
-	onPlan?(repoCount: number): void
+
+	/**
+	 * Called every time that limit is contributed to, which is really every time that `handleResult` is called and returns `true`.
+	 * If the search runs out of results before `limit` is reached, this function will still be called `limit` times. */
 	onTick?(): void
+
+	/** Called directly. `limit` is the number of ticks that will occur, even if there aren't that many results */
+	onPlan(limit: number): void
+
+	/** Gives a human-readable of description of the status of the operation */
 	onStatusChange?(status: string): void
 }
 
 export async function searchGithub(query: string, params: SearchGithubParams): Promise<void> {
 	const limit = params.limit ?? 500
-	const sort = params.sort ?? 'stars'
+	const sort = params.sort ?? 'best-match'
 	const order = params.order ?? 'desc'
 	const searcher = new GithubRequester({
 		onStatusChange: params.onStatusChange,
@@ -194,7 +209,12 @@ export async function searchGithub(query: string, params: SearchGithubParams): P
 	function buildLink() {
 		if (nextPageLink) return nextPageLink
 
-		const searchParams = new URLSearchParams({ q: query, sort, order })
+		const searchParams = new URLSearchParams()
+		searchParams.append('q', query)
+		searchParams.append('order', order)
+
+		// best-match is default, but the default will only be triggered if sort is unset
+		if (sort !== 'best-match') searchParams.append('sort', sort)
 
 		return `https://api.github.com/search/repositories?${searchParams.toString()}`
 	}

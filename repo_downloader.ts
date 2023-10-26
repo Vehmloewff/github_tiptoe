@@ -3,12 +3,27 @@ import { dtils } from './deps.ts'
 import { GithubRequester } from './requester.ts'
 
 export interface DownloadRepoParams {
+	/** The Github user that owns this repository */
 	user: string
+
+	/** The name of the repository without the user part */
 	name: string
+
+	/** A commit or branch to download. If `null`, the default branch will be used */
 	ref: string | null
+
+	/** The directory to download the project into */
 	destinationDir: string
+
+	/**
+	 * If specified, this function will be called for every file, right before it is written to the disk. If it returns `false`,
+	 * the file will not be written */
 	fileFilter?(file: string): Promise<boolean> | boolean
-	fileMapper?(file: string): string
+
+	/**
+	 * If specified, this function will be called for every file, right before it is written to the disk. Whatever it returns will
+	 * be the path that the file is written to. */
+	fileMapper?(file: string): Promise<string> | string
 }
 
 export interface RepoDownloaderParams {
@@ -28,10 +43,14 @@ export class RepoDownloader {
 		if (this.#params.onStatusChange) this.#params.onStatusChange(status)
 	}
 
+	/** Download a repository into `destinationDir`. Files can be filtered out with `params.fileFilter` and filenames can be mapped with `params.fileMapper` */
 	async download(params: DownloadRepoParams): Promise<void> {
 		const tmpFilePath = await Deno.makeTempFile()
 		const tmpDirPath = await Deno.makeTempDir()
 		const fullName = `${params.user}/${params.name}`
+
+		let url = `https://api.github.com/repos/${fullName}/tarball`
+		if (params.ref) url += `/${params.ref}`
 
 		this.#updateStatus(`Getting tarball for ${fullName}`)
 		const response = await dtils.retryFailures(async () => {
@@ -59,7 +78,7 @@ export class RepoDownloader {
 			if (params.fileFilter && !params.fileFilter(file.innerPath)) continue
 
 			const localPath = file.innerPath.split('/').slice(1).join('/') // Remove the extra dir that github creates when zipping
-			const path = params.fileMapper ? params.fileMapper(localPath) : localPath
+			const path = params.fileMapper ? await params.fileMapper(localPath) : localPath
 
 			const text = await dtils.readText(file.path)
 			const newPath = pathUtils.join(params.destinationDir, path)
