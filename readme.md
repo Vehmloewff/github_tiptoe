@@ -42,7 +42,7 @@ searchGithub({
 	// ...
 
 	onStatusChange(status) {
-		console.log('No need to fret. We\'re working or butts right now.', status)
+		console.log('No need to fret; we\'re working our butts off right now:', status)
 	},
 })
 
